@@ -1,10 +1,10 @@
-use std::fs;
-use std::path::PathBuf;
-
-use iced::widget::{column, pick_list, scrollable, slider, text, Button, Column};
+use iced::widget::{self, column, pick_list, scrollable, text, Button, Column, Space};
 use iced::widget::{row, Image};
 use iced::{Element, Fill, Theme};
+use image::ImageReader;
 use rfd::FileDialog;
+use std::fs;
+use std::path::PathBuf;
 
 pub fn main() -> iced::Result {
     iced::application(
@@ -19,7 +19,7 @@ pub fn main() -> iced::Result {
 struct ImageViewer {
     theme: Theme,
     image_paths: Option<Vec<PathBuf>>,
-    image_size: f32,
+    thumbnail_size: i32,
 }
 
 impl Default for ImageViewer {
@@ -27,7 +27,7 @@ impl Default for ImageViewer {
         Self {
             theme: Theme::default(),
             image_paths: Some(Vec::new()),
-            image_size: 25.0,
+            thumbnail_size: 200,
         }
     }
 }
@@ -35,7 +35,7 @@ impl Default for ImageViewer {
 #[derive(Debug, Clone)]
 enum Message {
     ThemeChanged(Theme),
-    ImageSizeChanged(f32),
+    ThumbnailSizeChanged(i32),
     SelectFolder,
 }
 
@@ -45,8 +45,8 @@ impl ImageViewer {
             Message::ThemeChanged(theme) => {
                 self.theme = theme;
             }
-            Message::ImageSizeChanged(value) => {
-                self.image_size = value;
+            Message::ThumbnailSizeChanged(value) => {
+                self.thumbnail_size += value;
             }
             Message::SelectFolder => {
                 let folder_paths = FileDialog::new()
@@ -55,34 +55,60 @@ impl ImageViewer {
                     //.set_directory("/")
                     .pick_folders();
 
-                // return if nothing selected
-                if folder_paths.is_none() {
-                    return;
-                }
+                self.get_image_paths(folder_paths);
+            }
+        }
+    }
 
-                //remove old image_paths (to avoid duplicate images)
-                self.image_paths = Some(Vec::new());
-                //update image paths
-                for folder_path in folder_paths.as_ref().unwrap().iter() {
-                    let paths = fs::read_dir(folder_path).unwrap();
-                    for path in paths.into_iter() {
-                        if path
-                            .as_ref()
-                            .unwrap()
-                            .path()
-                            .extension()
-                            .unwrap_or_default()
-                            == "png"
-                        {
-                            self.image_paths
-                                .as_mut()
-                                .unwrap()
-                                .push(path.unwrap().path());
-                        }
-                    }
+    fn get_image_paths(&mut self, folder_paths: Option<Vec<PathBuf>>) {
+        // return if empty folder_paths
+        if folder_paths.is_none() {
+            return;
+        }
+        //remove old image_paths (to avoid duplicate images)
+        self.image_paths = Some(Vec::new());
+        //update image paths
+        for folder_path in folder_paths.as_ref().unwrap().iter() {
+            let paths = fs::read_dir(folder_path).unwrap();
+            for path in paths.into_iter() {
+                if path
+                    .as_ref()
+                    .unwrap()
+                    .path()
+                    .extension()
+                    .unwrap_or_default()
+                    == "png"
+                {
+                    self.image_paths
+                        .as_mut()
+                        .unwrap()
+                        .push(path.unwrap().path());
                 }
             }
         }
+    }
+
+    fn create_image_widget(&self) -> Element<Message> {
+        // create images
+        let mut processed_images = Vec::new();
+        if self.image_paths.is_some() {
+            for image_path in self.image_paths.as_ref().unwrap().iter() {
+                let image = ImageReader::open(&image_path).unwrap().decode().unwrap();
+                let thumbnail = image
+                    .thumbnail(self.thumbnail_size as u32, self.thumbnail_size as u32)
+                    .into_rgba8();
+                let thumbnail_widget = widget::image::Handle::from_rgba(
+                    thumbnail.width(),
+                    thumbnail.height(),
+                    thumbnail.into_raw(),
+                );
+
+                let processed_image = Image::new(thumbnail_widget).into();
+                processed_images.push(processed_image);
+            }
+        }
+        let processed_images_element = scrollable(Column::from_vec(processed_images)).width(Fill);
+        processed_images_element.into()
     }
 
     fn view(&self) -> Element<Message> {
@@ -92,27 +118,17 @@ impl ImageViewer {
         ];
 
         let select_folder = Button::new("Select Folder").on_press(Message::SelectFolder);
-
-        let image_size = row![
-            text("Zoom:"),
-            slider(0.0..=100.0, self.image_size, Message::ImageSizeChanged)
-        ];
+        let zoom_in = Button::new("+").on_press(Message::ThumbnailSizeChanged(50));
+        let zoom_out = Button::new("-").on_press(Message::ThumbnailSizeChanged(-50));
 
         // create images
-        let mut images = Vec::new();
-        if self.image_paths.is_some() {
-            for image_path in self.image_paths.as_ref().unwrap().iter() {
-                let image = Image::new(image_path)
-                    //.height(self.image_size.powf(2.0))
-                    .width(self.image_size.powf(2.0))
-                    .into();
-                images.push(image);
-            }
-        }
-        let image_element = scrollable(Column::from_vec(images)).width(Fill);
+        let processed_images_element = self.create_image_widget();
 
         // create content
-        let content = column![row![choose_theme, image_size, select_folder], image_element,];
+        let content = column![
+            row![choose_theme, select_folder, zoom_in, zoom_out],
+            processed_images_element,
+        ];
 
         content.into()
     }
