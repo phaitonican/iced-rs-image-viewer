@@ -1,5 +1,5 @@
 use iced::widget::image::Handle;
-use iced::widget::{column, pick_list, scrollable, text, Button, Column};
+use iced::widget::{column, pick_list, scrollable, slider, text, Button, Column};
 use iced::widget::{row, Image};
 use iced::{Element, Fill, Theme};
 use image::ImageReader;
@@ -17,10 +17,12 @@ pub fn main() -> iced::Result {
     .run()
 }
 
+const DEFAULT_THUMBNAIL_WIDTH: f32 = 500.0;
+const DEFAULT_THUMBNAIL_HEIGHT: f32 = 500.0;
+
 struct ImageViewer {
     theme: Theme,
-    image_paths: Option<Vec<PathBuf>>,
-    thumbnail_size: i32,
+    zoom_factor: f32,
     thumbnail_handles: Option<Vec<Handle>>,
 }
 
@@ -28,8 +30,7 @@ impl Default for ImageViewer {
     fn default() -> Self {
         Self {
             theme: Theme::default(),
-            image_paths: Some(Vec::new()),
-            thumbnail_size: 200,
+            zoom_factor: 5.0, //gets divided by 10 to have smaller steps in the slider
             thumbnail_handles: Some(Vec::new()),
         }
     }
@@ -38,7 +39,7 @@ impl Default for ImageViewer {
 #[derive(Debug, Clone)]
 enum Message {
     ThemeChanged(Theme),
-    ThumbnailSizeChanged(i32),
+    ZoomFactorChanged(f32),
     SelectFolder,
 }
 
@@ -48,8 +49,8 @@ impl ImageViewer {
             Message::ThemeChanged(theme) => {
                 self.theme = theme;
             }
-            Message::ThumbnailSizeChanged(value) => {
-                self.thumbnail_size += value;
+            Message::ZoomFactorChanged(value) => {
+                self.zoom_factor = value;
                 //self.recreate_images();
             }
             Message::SelectFolder => {
@@ -59,19 +60,20 @@ impl ImageViewer {
                     //.set_directory("/")
                     .pick_folders();
 
-                self.get_image_paths(folder_paths);
-                self.recreate_images();
+                let image_paths = self.get_image_paths(folder_paths);
+                self.recreate_images(image_paths);
             }
         }
     }
 
-    fn get_image_paths(&mut self, folder_paths: Option<Vec<PathBuf>>) {
+    fn get_image_paths(&mut self, folder_paths: Option<Vec<PathBuf>>) -> Option<Vec<PathBuf>> {
+        let mut image_paths = Some(Vec::new());
         // return if empty folder_paths
         if folder_paths.is_none() {
-            return;
+            return image_paths;
         }
         //remove old image_paths (to avoid duplicate images)
-        self.image_paths = Some(Vec::new());
+        image_paths = Some(Vec::new());
         //update image paths
         for folder_path in folder_paths.as_ref().unwrap().iter() {
             let paths_inside_folder = fs::read_dir(folder_path).unwrap();
@@ -84,22 +86,25 @@ impl ImageViewer {
                     .unwrap_or_default()
                     == "png"
                 {
-                    self.image_paths
-                        .as_mut()
-                        .unwrap()
-                        .push(path.unwrap().path());
+                    image_paths.as_mut().unwrap().push(path.unwrap().path());
                 }
             }
         }
+        return image_paths;
     }
 
-    fn recreate_images(&mut self) {
+    fn recreate_images(&mut self, image_paths: Option<Vec<PathBuf>>) {
         // create images
         self.thumbnail_handles = Some(Vec::new());
-        if self.image_paths.is_some() {
-            for image_path in self.image_paths.as_ref().unwrap().iter() {
+        if image_paths.is_some() {
+            for image_path in image_paths.as_ref().unwrap().iter() {
                 let image = ImageReader::open(&image_path).unwrap().decode().unwrap();
-                let thumbnail = image.thumbnail(200, 200).into_rgba8();
+                let thumbnail = image
+                    .thumbnail(
+                        DEFAULT_THUMBNAIL_WIDTH as u32,
+                        DEFAULT_THUMBNAIL_HEIGHT as u32,
+                    )
+                    .into_rgba8();
                 let thumbnail_handle =
                     Handle::from_rgba(thumbnail.width(), thumbnail.height(), thumbnail.into_raw());
 
@@ -118,19 +123,19 @@ impl ImageViewer {
         ];
 
         let select_folder = Button::new("Select Folder").on_press(Message::SelectFolder);
-        let zoom_in = Button::new("+").on_press(Message::ThumbnailSizeChanged(50));
-        let zoom_out = Button::new("-").on_press(Message::ThumbnailSizeChanged(-50));
+        let zoom_slider = slider(1.0..=10.0, self.zoom_factor, Message::ZoomFactorChanged);
 
         let mut image_elements = Vec::new();
         for thumbnail_handle in self.thumbnail_handles.as_ref().unwrap() {
-            let image_element = Image::new(thumbnail_handle).width(self.thumbnail_size as f32);
+            let image_element = Image::new(thumbnail_handle)
+                .width(DEFAULT_THUMBNAIL_WIDTH * self.zoom_factor / 10.0);
             image_elements.push(image_element.into());
         }
         let processed_images_element = scrollable(Column::from_vec(image_elements)).width(Fill);
 
         // create content
         let content = column![
-            row![choose_theme, select_folder, zoom_in, zoom_out],
+            row![choose_theme, zoom_slider, select_folder],
             processed_images_element,
         ];
 
