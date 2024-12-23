@@ -1,11 +1,11 @@
 use iced::widget::image::Handle;
 use iced::widget::{column, pick_list, scrollable, slider, text, Button, Column};
 use iced::widget::{row, Image};
-use iced::{Element, Fill, Theme};
+use iced::{Element, Fill, Task, Theme};
 use image::ImageReader;
 use rfd::FileDialog;
-use std::fs;
 use std::path::PathBuf;
+use std::{fs, io};
 
 pub fn main() -> iced::Result {
     iced::application(
@@ -19,6 +19,12 @@ pub fn main() -> iced::Result {
 
 const DEFAULT_THUMBNAIL_WIDTH: f32 = 500.0;
 const DEFAULT_THUMBNAIL_HEIGHT: f32 = 500.0;
+
+#[derive(Debug, Clone)]
+pub enum Error {
+    DialogClosed,
+    IoError(io::ErrorKind),
+}
 
 struct ImageViewer {
     theme: Theme,
@@ -41,17 +47,69 @@ enum Message {
     ThemeChanged(Theme),
     ZoomFactorChanged(f32),
     SelectFolder,
+    ImagesLoaded(Result<Vec<Handle>, Error>),
+}
+
+fn get_image_paths(folder_paths: Option<Vec<PathBuf>>) -> Option<Vec<PathBuf>> {
+    let mut image_paths = Some(Vec::new());
+    // return if empty folder_paths
+    if folder_paths.is_none() {
+        return image_paths;
+    }
+    //remove old image_paths (to avoid duplicate images)
+    image_paths = Some(Vec::new());
+    //update image paths
+    for folder_path in folder_paths.as_ref().unwrap().iter() {
+        let paths_inside_folder = fs::read_dir(folder_path).unwrap();
+        for path in paths_inside_folder.into_iter() {
+            if path
+                .as_ref()
+                .unwrap()
+                .path()
+                .extension()
+                .unwrap_or_default()
+                == "png"
+            {
+                image_paths.as_mut().unwrap().push(path.unwrap().path());
+            }
+        }
+    }
+    return image_paths;
+}
+
+async fn recreate_images(image_paths: Option<Vec<PathBuf>>) -> Result<Vec<Handle>, Error> {
+    // create images
+    let mut thumbnail_handles = Some(Vec::new());
+    //self.thumbnail_handles = Some(Vec::new());
+    if image_paths.is_some() {
+        for image_path in image_paths.as_ref().unwrap().iter() {
+            let image = ImageReader::open(&image_path).unwrap().decode().unwrap();
+            let thumbnail = image
+                .thumbnail(
+                    DEFAULT_THUMBNAIL_WIDTH as u32,
+                    DEFAULT_THUMBNAIL_HEIGHT as u32,
+                )
+                .into_rgba8();
+            let thumbnail_handle =
+                Handle::from_rgba(thumbnail.width(), thumbnail.height(), thumbnail.into_raw());
+
+            thumbnail_handles.as_mut().unwrap().push(thumbnail_handle);
+        }
+    }
+    Ok(thumbnail_handles.unwrap())
 }
 
 impl ImageViewer {
-    fn update(&mut self, message: Message) {
+    fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::ThemeChanged(theme) => {
                 self.theme = theme;
+                Task::none()
             }
             Message::ZoomFactorChanged(value) => {
                 self.zoom_factor = value;
                 //self.recreate_images();
+                Task::none()
             }
             Message::SelectFolder => {
                 let folder_paths = FileDialog::new()
@@ -60,58 +118,16 @@ impl ImageViewer {
                     //.set_directory("/")
                     .pick_folders();
 
-                let image_paths = self.get_image_paths(folder_paths);
-                self.recreate_images(image_paths);
-            }
-        }
-    }
+                let image_paths = get_image_paths(folder_paths);
 
-    fn get_image_paths(&mut self, folder_paths: Option<Vec<PathBuf>>) -> Option<Vec<PathBuf>> {
-        let mut image_paths = Some(Vec::new());
-        // return if empty folder_paths
-        if folder_paths.is_none() {
-            return image_paths;
-        }
-        //remove old image_paths (to avoid duplicate images)
-        image_paths = Some(Vec::new());
-        //update image paths
-        for folder_path in folder_paths.as_ref().unwrap().iter() {
-            let paths_inside_folder = fs::read_dir(folder_path).unwrap();
-            for path in paths_inside_folder.into_iter() {
-                if path
-                    .as_ref()
-                    .unwrap()
-                    .path()
-                    .extension()
-                    .unwrap_or_default()
-                    == "png"
-                {
-                    image_paths.as_mut().unwrap().push(path.unwrap().path());
+                let task = Task::perform(recreate_images(image_paths), Message::ImagesLoaded);
+                task //returns this
+            }
+            Message::ImagesLoaded(result) => {
+                if let Ok(thumbnail_handles) = result {
+                    self.thumbnail_handles = Some(thumbnail_handles);
                 }
-            }
-        }
-        return image_paths;
-    }
-
-    fn recreate_images(&mut self, image_paths: Option<Vec<PathBuf>>) {
-        // create images
-        self.thumbnail_handles = Some(Vec::new());
-        if image_paths.is_some() {
-            for image_path in image_paths.as_ref().unwrap().iter() {
-                let image = ImageReader::open(&image_path).unwrap().decode().unwrap();
-                let thumbnail = image
-                    .thumbnail(
-                        DEFAULT_THUMBNAIL_WIDTH as u32,
-                        DEFAULT_THUMBNAIL_HEIGHT as u32,
-                    )
-                    .into_rgba8();
-                let thumbnail_handle =
-                    Handle::from_rgba(thumbnail.width(), thumbnail.height(), thumbnail.into_raw());
-
-                self.thumbnail_handles
-                    .as_mut()
-                    .unwrap()
-                    .push(thumbnail_handle);
+                Task::none()
             }
         }
     }
