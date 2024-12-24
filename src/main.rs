@@ -1,8 +1,9 @@
 use iced::widget::image::Handle;
-use iced::widget::{column, container, pick_list, progress_bar, scrollable, slider, Button, Row};
+use iced::widget::{column, container, pick_list, progress_bar, scrollable, slider, Button};
 use iced::widget::{row, Image};
 use iced::window::{self, Id};
 use iced::{Alignment, Element, Fill, Size, Subscription, Task, Theme};
+use iced_aw::Wrap;
 use image::ImageReader;
 use mime_guess::{mime, MimeGuess};
 use rfd::FileHandle;
@@ -190,6 +191,7 @@ impl ImageViewer {
         let thumbnail_handles = self.thumbnail_handles.as_ref().unwrap();
 
         let mut thumbnail_images = Vec::new();
+
         for thumbnail_handle in thumbnail_handles {
             let t_width = THUMBNAIL_WIDTH * self.zoom_factor / SLIDER_STEPS;
             let t_height = THUMBNAIL_HEIGHT * self.zoom_factor / SLIDER_STEPS;
@@ -197,15 +199,20 @@ impl ImageViewer {
             thumbnail_images.push(image.into());
         }
 
-        let rows_for_thumbnails = Row::from_vec(thumbnail_images)
-            .spacing(MIN_SPACING)
-            .align_y(Alignment::Center)
-            .wrap();
+        let thumbnails_wrap = Wrap::with_elements(thumbnail_images)
+            .align_items(Alignment::Center)
+            .spacing(MIN_SPACING);
 
-        let scrollable_rows_for_thumbnails =
-            scrollable(container(rows_for_thumbnails).center_x(Fill))
-                .width(Fill)
-                .height(Fill);
+        /*
+            let rows_for_thumbnails = Row::from_vec(thumbnail_images)
+                .spacing(MIN_SPACING)
+                .align_y(Alignment::Center)
+                .wrap();
+        */
+
+        let scrollable_rows_for_thumbnails = scrollable(container(thumbnails_wrap).center_x(Fill))
+            .width(Fill)
+            .height(Fill);
 
         let toolbar = row![select_folder, choose_theme, zoom_slider,]
             .spacing(MIN_SPACING)
