@@ -5,7 +5,7 @@ use iced::window::{self, Id};
 use iced::{Alignment, Element, Fill, Size, Subscription, Task, Theme};
 use image::ImageReader;
 use mime_guess::{mime, MimeGuess};
-use rfd::FileDialog;
+use rfd::FileHandle;
 use std::path::PathBuf;
 use std::{fs, io};
 
@@ -43,6 +43,7 @@ struct ImageViewer {
     columns: usize,
     x_spacing: f32,
     image_count: usize,
+    image_load_abort_handle: Option<iced::task::Handle>,
 }
 
 impl Default for ImageViewer {
@@ -56,6 +57,7 @@ impl Default for ImageViewer {
             columns: 3,
             x_spacing: 0.0,
             image_count: 0,
+            image_load_abort_handle: None,
         }
     }
 }
@@ -64,18 +66,27 @@ impl Default for ImageViewer {
 enum Message {
     ThemeChanged(Theme),
     ZoomFactorChanged(f32),
-    SelectFolder,
+    SelectFolders,
+    FoldersOpened(Result<Vec<FileHandle>, Error>),
     ImageLoaded(Result<Handle, Error>),
     WindowResized(Id, Size),
     SetMainWindowID(Id),
 }
 
-fn get_image_paths(folder_paths: Vec<PathBuf>) -> Vec<PathBuf> {
+async fn open_folders() -> Result<Vec<FileHandle>, Error> {
+    let picked_folders = rfd::AsyncFileDialog::new()
+        .set_title("Open (multiple) folders...")
+        .pick_folders()
+        .await;
+    Ok(picked_folders.unwrap_or_default())
+}
+
+fn get_image_paths(folder_paths: &Vec<FileHandle>) -> Vec<PathBuf> {
     let mut image_paths = Vec::new();
 
     //update image paths
     for folder_path in folder_paths.iter() {
-        let paths_inside_folder_result = fs::read_dir(folder_path).unwrap();
+        let paths_inside_folder_result = fs::read_dir(folder_path.path()).unwrap();
         for path_result in paths_inside_folder_result.into_iter() {
             let path = path_result.unwrap().path();
             //println!("{:?}", &top_level_mime_type);
@@ -94,7 +105,10 @@ fn get_image_paths(folder_paths: Vec<PathBuf>) -> Vec<PathBuf> {
 }
 
 async fn recreate_image(image_path: PathBuf) -> Result<Handle, Error> {
-    let dynamic_image = ImageReader::open(image_path).unwrap().decode().unwrap();
+    let dynamic_image = ImageReader::open(image_path)
+        .unwrap()
+        .decode()
+        .unwrap_or_default();
     let thumbnail = dynamic_image
         .thumbnail(THUMBNAIL_WIDTH as u32, THUMBNAIL_HEIGHT as u32)
         .into_rgba8();
@@ -103,6 +117,7 @@ async fn recreate_image(image_path: PathBuf) -> Result<Handle, Error> {
 
     Ok(thumbnail_handle)
 }
+
 impl ImageViewer {
     fn subscription(&self) -> Subscription<Message> {
         window::resize_events().map(|(id, size)| Message::WindowResized(id, size))
@@ -120,27 +135,39 @@ impl ImageViewer {
                 self.recalculate_columns();
                 Task::none()
             }
-            Message::SelectFolder => {
-                let folder_paths = FileDialog::new()
-                    //.add_filter("text", &["txt", "rs"])
-                    //.add_filter("rust", &["rs", "toml"])
-                    //.set_directory("/")
-                    .pick_folders();
+            Message::SelectFolders => {
+                return Task::perform(open_folders(), Message::FoldersOpened);
+            }
+            Message::FoldersOpened(result) => {
+                if let Ok(folder_paths) = result {
+                    //abort last tasks
+                    if let Some(last_abort_handle) = self.image_load_abort_handle.as_ref() {
+                        last_abort_handle.abort();
+                    }
 
-                let image_paths = get_image_paths(folder_paths.unwrap_or_default());
-                self.image_count = image_paths.len();
-                //remove old thumbnail handles
-                self.thumbnail_handles = Some(Vec::new());
+                    //continue
+                    let image_paths = get_image_paths(&folder_paths);
+                    self.image_count = image_paths.len();
 
-                let mut tasks = vec![];
-                for image_path in image_paths.iter() {
-                    let task =
-                        Task::perform(recreate_image(image_path.into()), Message::ImageLoaded);
-                    tasks.push(task);
+                    //remove old thumbnail handles
+                    if !&folder_paths.is_empty() {
+                        self.thumbnail_handles = Some(Vec::new());
+                    }
+
+                    let mut tasks = vec![];
+                    for image_path in image_paths.iter() {
+                        let task =
+                            Task::perform(recreate_image(image_path.into()), Message::ImageLoaded);
+                        tasks.push(task);
+                    }
+
+                    //let task = Task::perform(recreate_images(image_paths), Message::ImagesLoaded);
+                    let (summarized_task, abort_handle) = Task::abortable(Task::batch(tasks)); //returns this
+                    self.image_load_abort_handle = Some(abort_handle);
+                    summarized_task
+                } else {
+                    return Task::none();
                 }
-
-                //let task = Task::perform(recreate_images(image_paths), Message::ImagesLoaded);
-                Task::batch(tasks) //returns this
             }
             Message::ImageLoaded(result) => {
                 if let Ok(handle) = result {
@@ -195,7 +222,7 @@ impl ImageViewer {
             Message::ThemeChanged
         ),];
 
-        let select_folder = Button::new("Select Folder").on_press(Message::SelectFolder);
+        let select_folder = Button::new("Select Folder").on_press(Message::SelectFolders);
         let zoom_slider = slider(
             1.0..=SLIDER_STEPS,
             self.zoom_factor,
