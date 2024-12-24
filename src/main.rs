@@ -10,14 +10,10 @@ use std::path::PathBuf;
 use std::{fs, io};
 
 pub fn main() -> iced::Result {
-    iced::application(
-        "Image Viewer - Iced",
-        ImageViewer::update,
-        ImageViewer::view,
-    )
-    .subscription(ImageViewer::subscription)
-    .theme(ImageViewer::theme)
-    .run_with(ImageViewer::new)
+    iced::application("Image Viewer", ImageViewer::update, ImageViewer::view)
+        .subscription(ImageViewer::subscription)
+        .theme(ImageViewer::theme)
+        .run_with(ImageViewer::new)
 }
 
 const THUMBNAIL_WIDTH: f32 = 500.0;

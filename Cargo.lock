@@ -1555,16 +1555,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "iced_app"
-version = "0.1.0"
-dependencies = [
- "iced",
- "image 0.25.5",
- "mime_guess",
- "rfd",
-]
-
-[[package]]
 name = "iced_core"
 version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1631,6 +1621,16 @@ dependencies = [
  "rustc-hash 2.1.0",
  "thiserror",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "iced_image_viewer"
+version = "0.1.0"
+dependencies = [
+ "iced",
+ "image 0.25.5",
+ "mime_guess",
+ "rfd",
 ]
 
 [[package]]
