@@ -1,5 +1,7 @@
 use iced::widget::image::Handle;
-use iced::widget::{column, container, pick_list, progress_bar, scrollable, slider, Button};
+use iced::widget::{
+    column, container, pick_list, progress_bar, scrollable, slider, stack, text, Button,
+};
 use iced::widget::{row, Image};
 use iced::window::{self, Id};
 use iced::{Alignment, Element, Fill, Size, Subscription, Task, Theme};
@@ -35,17 +37,19 @@ struct ImageViewer {
     main_window_id: Option<Id>,
     image_count: usize,
     image_load_abort_handle: Option<iced::task::Handle>,
+    image_loaded: Option<PathBuf>,
 }
 
 impl Default for ImageViewer {
     fn default() -> Self {
         Self {
-            theme: Theme::default(),
+            theme: Theme::Dark,
             zoom_factor: SLIDER_STEPS / 2.0, //half zoom
-            thumbnail_handles: Some(Vec::new()),
+            thumbnail_handles: Some(Vec::default()),
             main_window_id: None,
-            image_count: 0,
+            image_count: usize::default(),
             image_load_abort_handle: None,
+            image_loaded: None,
         }
     }
 }
@@ -56,7 +60,7 @@ enum Message {
     ZoomFactorChanged(f32),
     SelectFolders,
     FoldersOpened(Result<Vec<FileHandle>, Error>),
-    ImageLoaded(Result<Handle, Error>),
+    ImageLoaded(Result<(Handle, PathBuf), Error>),
     WindowResized(Id, Size),
     SetMainWindowID(Id),
 }
@@ -92,8 +96,8 @@ fn get_image_paths(folder_paths: &Vec<FileHandle>) -> Vec<PathBuf> {
     return image_paths;
 }
 
-async fn recreate_image(image_path: PathBuf) -> Result<Handle, Error> {
-    let dynamic_image = ImageReader::open(image_path)
+async fn recreate_image(image_path: PathBuf) -> Result<(Handle, PathBuf), Error> {
+    let dynamic_image = ImageReader::open(&image_path)
         .unwrap()
         .decode()
         .unwrap_or_default();
@@ -103,7 +107,7 @@ async fn recreate_image(image_path: PathBuf) -> Result<Handle, Error> {
     let thumbnail_handle =
         Handle::from_rgba(thumbnail.width(), thumbnail.height(), thumbnail.into_raw());
 
-    Ok(thumbnail_handle)
+    Ok((thumbnail_handle, image_path))
 }
 
 impl ImageViewer {
@@ -156,7 +160,8 @@ impl ImageViewer {
                 }
             }
             Message::ImageLoaded(result) => {
-                if let Ok(handle) = result {
+                if let Ok((handle, path_buf)) = result {
+                    self.image_loaded = Some(path_buf);
                     self.thumbnail_handles.as_mut().unwrap().push(handle);
                 }
                 Task::none()
@@ -189,9 +194,7 @@ impl ImageViewer {
 
         // thumbnails
         let thumbnail_handles = self.thumbnail_handles.as_ref().unwrap();
-
         let mut thumbnail_images = Vec::new();
-
         for thumbnail_handle in thumbnail_handles {
             let t_width = THUMBNAIL_WIDTH * self.zoom_factor / SLIDER_STEPS;
             let t_height = THUMBNAIL_HEIGHT * self.zoom_factor / SLIDER_STEPS;
@@ -203,13 +206,6 @@ impl ImageViewer {
             .align_items(Alignment::Center)
             .spacing(MIN_SPACING);
 
-        /*
-            let rows_for_thumbnails = Row::from_vec(thumbnail_images)
-                .spacing(MIN_SPACING)
-                .align_y(Alignment::Center)
-                .wrap();
-        */
-
         let scrollable_rows_for_thumbnails = scrollable(container(thumbnails_wrap).center_x(Fill))
             .width(Fill)
             .height(Fill);
@@ -220,10 +216,27 @@ impl ImageViewer {
             .align_y(Alignment::Center)
             .wrap();
 
-        let progress_bar = row![progress_bar(
-            0.0..=self.image_count as f32,
-            self.thumbnail_handles.as_ref().unwrap().len() as f32
-        )];
+        let loaded_images = self.thumbnail_handles.as_ref().unwrap().len();
+        let mut loading_message = String::default();
+        if let Some(image_pathbuf) = &self.image_loaded {
+            let loaded_image_path = image_pathbuf.to_str().unwrap_or_default().to_string();
+            let counter_string = "(".to_owned()
+                + &loaded_images.to_string()
+                + "/"
+                + &self.image_count.to_string()
+                + ")";
+            loading_message =
+                "Loaded image: ".to_owned() + &loaded_image_path + " " + &counter_string;
+        }
+
+        let progress_bar = stack![
+            progress_bar(0.0..=self.image_count as f32, loaded_images as f32),
+            text(loading_message)
+                .height(Fill)
+                .width(Fill)
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Center),
+        ];
 
         // create content
         let content = column![toolbar, scrollable_rows_for_thumbnails, progress_bar];
