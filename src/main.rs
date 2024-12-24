@@ -1,8 +1,8 @@
 use iced::widget::image::Handle;
-use iced::widget::{column, container, pick_list, scrollable, slider, text, Button, Row};
+use iced::widget::{column, container, pick_list, scrollable, slider, Button, Row};
 use iced::widget::{row, Image};
 use iced::window::{self, Id};
-use iced::{Element, Fill, Size, Subscription, Task, Theme};
+use iced::{Alignment, Element, Fill, Size, Subscription, Task, Theme};
 use image::ImageReader;
 use mime_guess::{mime, MimeGuess};
 use rfd::FileDialog;
@@ -25,8 +25,8 @@ pub fn main() -> iced::Result {
 
 const THUMBNAIL_WIDTH: f32 = 500.0;
 const THUMBNAIL_HEIGHT: f32 = 500.0;
-const SPACING: u16 = 0;
-const SLIDER_STEPS: u8 = 10;
+const MIN_SPACING: f32 = 10.0;
+const SLIDER_STEPS: f32 = 100.0;
 
 #[derive(Debug, Clone)]
 pub enum Error {
@@ -41,17 +41,19 @@ struct ImageViewer {
     main_window_size: Size,
     main_window_id: Option<Id>,
     columns: usize,
+    x_spacing: f32,
 }
 
 impl Default for ImageViewer {
     fn default() -> Self {
         Self {
             theme: Theme::default(),
-            zoom_factor: 5.0, //gets divided by 10 to have smaller steps in the slider
+            zoom_factor: SLIDER_STEPS / 2.0, //half zoom
             thumbnail_handles: Some(Vec::new()),
             main_window_size: Size::default(),
             main_window_id: None,
             columns: 3,
+            x_spacing: 0.0,
         }
     }
 }
@@ -159,10 +161,16 @@ impl ImageViewer {
     }
 
     fn recalculate_columns(&mut self) {
+        let row_width = THUMBNAIL_WIDTH * self.zoom_factor / SLIDER_STEPS as f32;
+
         let new_columns: usize;
-        new_columns = (self.main_window_size.width
-            / (THUMBNAIL_WIDTH * self.zoom_factor / SLIDER_STEPS as f32))
-            as usize;
+        new_columns = (self.main_window_size.width / row_width) as usize;
+
+        let new_x_spacing: f32;
+        let empty_space: f32;
+        empty_space = self.main_window_size.width % row_width;
+        new_x_spacing = empty_space / new_columns as f32;
+        self.x_spacing = new_x_spacing;
 
         if new_columns >= 1 {
             self.columns = new_columns;
@@ -179,37 +187,49 @@ impl ImageViewer {
     }
 
     fn view(&self) -> Element<Message> {
-        let choose_theme = row![
-            text("Theme:"),
-            pick_list(Theme::ALL, Some(&self.theme), Message::ThemeChanged),
-        ];
+        let choose_theme = row![pick_list(
+            Theme::ALL,
+            Some(&self.theme),
+            Message::ThemeChanged
+        ),];
 
         let select_folder = Button::new("Select Folder").on_press(Message::SelectFolder);
-        let zoom_slider = slider(1.0..=10.0, self.zoom_factor, Message::ZoomFactorChanged);
+        let zoom_slider = slider(
+            1.0..=SLIDER_STEPS,
+            self.zoom_factor,
+            Message::ZoomFactorChanged,
+        );
 
+        // thumbnails
         let thumbnail_handles = self.thumbnail_handles.as_ref().unwrap();
         let chunked_thumbnail_handles: Vec<&[Handle]> =
             thumbnail_handles.chunks(self.columns).collect();
 
-        let mut rows = column![].spacing(SPACING);
+        let mut rows = column![].spacing(MIN_SPACING);
         for thumbnail_handle_chunk in chunked_thumbnail_handles {
             let mut row_images = Vec::new();
             for thumbnail_handle in thumbnail_handle_chunk {
-                let image_element: Image = Image::new(thumbnail_handle)
-                    .width(THUMBNAIL_WIDTH * self.zoom_factor / SLIDER_STEPS as f32);
+                let t_width = THUMBNAIL_WIDTH * self.zoom_factor / SLIDER_STEPS;
+                let t_height = THUMBNAIL_HEIGHT * self.zoom_factor / SLIDER_STEPS;
+                let image_element: Image =
+                    Image::new(thumbnail_handle).width(t_width).height(t_height);
                 row_images.push(image_element.into());
             }
-            let row = Row::from_vec(row_images).spacing(SPACING);
+            let row = Row::from_vec(row_images)
+                .spacing(self.x_spacing)
+                .align_y(Alignment::Center);
             rows = rows.push(row);
         }
 
-        let scrollable_rows = scrollable(container(rows).center_x(Fill)).width(Fill);
+        let scrollable_image_rows = scrollable(container(rows).center_x(Fill)).width(Fill);
+
+        let toolbar = row![choose_theme, zoom_slider, select_folder]
+            .spacing(MIN_SPACING)
+            .padding(MIN_SPACING)
+            .align_y(Alignment::Center);
 
         // create content
-        let content = column![
-            row![choose_theme, zoom_slider, select_folder],
-            scrollable_rows,
-        ];
+        let content = column![toolbar, scrollable_image_rows,];
 
         content.into()
     }
