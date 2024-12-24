@@ -1,8 +1,9 @@
 use iced::widget::image::Handle;
-use iced::widget::{column, pick_list, scrollable, slider, text, Button, Column};
+use iced::widget::{column, container, pick_list, scrollable, slider, text, Button, Row};
 use iced::widget::{row, Image};
 use iced::{Element, Fill, Task, Theme};
 use image::ImageReader;
+use mime_guess::{mime, MimeGuess};
 use rfd::FileDialog;
 use std::path::PathBuf;
 use std::{fs, io};
@@ -17,8 +18,9 @@ pub fn main() -> iced::Result {
     .run()
 }
 
-const DEFAULT_THUMBNAIL_WIDTH: f32 = 500.0;
-const DEFAULT_THUMBNAIL_HEIGHT: f32 = 500.0;
+const THUMBNAIL_WIDTH: f32 = 500.0;
+const THUMBNAIL_HEIGHT: f32 = 500.0;
+const SPACING: u16 = 10;
 
 #[derive(Debug, Clone)]
 pub enum Error {
@@ -47,58 +49,42 @@ enum Message {
     ThemeChanged(Theme),
     ZoomFactorChanged(f32),
     SelectFolder,
-    ImagesLoaded(Result<Vec<Handle>, Error>),
+    ImageLoaded(Result<Handle, Error>),
 }
 
-fn get_image_paths(folder_paths: Option<Vec<PathBuf>>) -> Option<Vec<PathBuf>> {
-    let mut image_paths = Some(Vec::new());
-    // return if empty folder_paths
-    if folder_paths.is_none() {
-        return image_paths;
-    }
-    //remove old image_paths (to avoid duplicate images)
-    image_paths = Some(Vec::new());
+fn get_image_paths(folder_paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut image_paths = Vec::new();
+
     //update image paths
-    for folder_path in folder_paths.as_ref().unwrap().iter() {
-        let paths_inside_folder = fs::read_dir(folder_path).unwrap();
-        for path in paths_inside_folder.into_iter() {
-            if path
+    for folder_path in folder_paths.iter() {
+        let paths_inside_folder_result = fs::read_dir(folder_path).unwrap();
+        for path_result in paths_inside_folder_result.into_iter() {
+            let path = path_result.unwrap().path();
+            //println!("{:?}", &top_level_mime_type);
+            if MimeGuess::from_path(&path)
+                .first()
                 .as_ref()
                 .unwrap()
-                .path()
-                .extension()
-                .unwrap_or_default()
-                == "png"
+                .type_()
+                == mime::IMAGE
             {
-                image_paths.as_mut().unwrap().push(path.unwrap().path());
+                image_paths.push(path);
             }
         }
     }
     return image_paths;
 }
 
-async fn recreate_images(image_paths: Option<Vec<PathBuf>>) -> Result<Vec<Handle>, Error> {
-    // create images
-    let mut thumbnail_handles = Some(Vec::new());
-    //self.thumbnail_handles = Some(Vec::new());
-    if image_paths.is_some() {
-        for image_path in image_paths.as_ref().unwrap().iter() {
-            let image = ImageReader::open(&image_path).unwrap().decode().unwrap();
-            let thumbnail = image
-                .thumbnail(
-                    DEFAULT_THUMBNAIL_WIDTH as u32,
-                    DEFAULT_THUMBNAIL_HEIGHT as u32,
-                )
-                .into_rgba8();
-            let thumbnail_handle =
-                Handle::from_rgba(thumbnail.width(), thumbnail.height(), thumbnail.into_raw());
+async fn recreate_image(image_path: PathBuf) -> Result<Handle, Error> {
+    let dynamic_image = ImageReader::open(image_path).unwrap().decode().unwrap();
+    let thumbnail = dynamic_image
+        .thumbnail(THUMBNAIL_WIDTH as u32, THUMBNAIL_HEIGHT as u32)
+        .into_rgba8();
+    let thumbnail_handle =
+        Handle::from_rgba(thumbnail.width(), thumbnail.height(), thumbnail.into_raw());
 
-            thumbnail_handles.as_mut().unwrap().push(thumbnail_handle);
-        }
-    }
-    Ok(thumbnail_handles.unwrap())
+    Ok(thumbnail_handle)
 }
-
 impl ImageViewer {
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
@@ -118,17 +104,30 @@ impl ImageViewer {
                     //.set_directory("/")
                     .pick_folders();
 
-                let image_paths = get_image_paths(folder_paths);
+                let image_paths = get_image_paths(folder_paths.unwrap_or_default());
 
-                let task = Task::perform(recreate_images(image_paths), Message::ImagesLoaded);
-                task //returns this
+                //remove old thumbnail handles
+                self.thumbnail_handles = Some(Vec::new());
+
+                let mut tasks = Vec::new();
+                for image_path in image_paths.iter() {
+                    let task =
+                        Task::perform(recreate_image(image_path.into()), Message::ImageLoaded);
+                    tasks.push(task);
+                }
+
+                //let task = Task::perform(recreate_images(image_paths), Message::ImagesLoaded);
+                Task::batch(tasks) //returns this
             }
-            Message::ImagesLoaded(result) => {
-                if let Ok(thumbnail_handles) = result {
-                    self.thumbnail_handles = Some(thumbnail_handles);
+            Message::ImageLoaded(result) => {
+                if let Ok(handle) = result {
+                    self.thumbnail_handles.as_mut().unwrap().push(handle);
                 }
                 Task::none()
-            }
+            } //Message::SetMainWindowID(id) => {
+              //self.main_window_id = Some(id);
+              //Task::none()
+              //}
         }
     }
 
@@ -141,18 +140,27 @@ impl ImageViewer {
         let select_folder = Button::new("Select Folder").on_press(Message::SelectFolder);
         let zoom_slider = slider(1.0..=10.0, self.zoom_factor, Message::ZoomFactorChanged);
 
-        let mut image_elements = Vec::new();
-        for thumbnail_handle in self.thumbnail_handles.as_ref().unwrap() {
-            let image_element = Image::new(thumbnail_handle)
-                .width(DEFAULT_THUMBNAIL_WIDTH * self.zoom_factor / 10.0);
-            image_elements.push(image_element.into());
+        let thumbnail_handles = self.thumbnail_handles.as_ref().unwrap();
+        let chunked_thumbnail_handles: Vec<&[Handle]> = thumbnail_handles.chunks(3).collect();
+
+        let mut rows = column![].spacing(SPACING);
+        for thumbnail_handle_chunk in chunked_thumbnail_handles {
+            let mut row_images = Vec::new();
+            for thumbnail_handle in thumbnail_handle_chunk {
+                let image_element: Image =
+                    Image::new(thumbnail_handle).width(THUMBNAIL_WIDTH * self.zoom_factor / 10.0);
+                row_images.push(image_element.into());
+            }
+            let row = Row::from_vec(row_images).spacing(SPACING);
+            rows = rows.push(row);
         }
-        let processed_images_element = scrollable(Column::from_vec(image_elements)).width(Fill);
+
+        let scrollable_rows = scrollable(container(rows).center_x(Fill)).width(Fill);
 
         // create content
         let content = column![
             row![choose_theme, zoom_slider, select_folder],
-            processed_images_element,
+            scrollable_rows,
         ];
 
         content.into()
