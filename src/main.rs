@@ -17,10 +17,7 @@ pub fn main() -> iced::Result {
     )
     .subscription(ImageViewer::subscription)
     .theme(ImageViewer::theme)
-    .run_with(|| {
-        let app = ImageViewer::new();
-        app
-    })
+    .run_with(ImageViewer::new)
 }
 
 const THUMBNAIL_WIDTH: f32 = 500.0;
@@ -40,8 +37,6 @@ struct ImageViewer {
     thumbnail_handles: Option<Vec<Handle>>,
     main_window_size: Size,
     main_window_id: Option<Id>,
-    columns: usize,
-    x_spacing: f32,
     image_count: usize,
     image_load_abort_handle: Option<iced::task::Handle>,
 }
@@ -54,8 +49,6 @@ impl Default for ImageViewer {
             thumbnail_handles: Some(Vec::new()),
             main_window_size: Size::default(),
             main_window_id: None,
-            columns: 3,
-            x_spacing: 0.0,
             image_count: 0,
             image_load_abort_handle: None,
         }
@@ -131,8 +124,6 @@ impl ImageViewer {
             }
             Message::ZoomFactorChanged(value) => {
                 self.zoom_factor = value;
-                //self.recreate_images();
-                self.recalculate_columns();
                 Task::none()
             }
             Message::SelectFolders => {
@@ -178,7 +169,6 @@ impl ImageViewer {
             Message::WindowResized(id, size) => {
                 if Some(id) == self.main_window_id {
                     self.main_window_size = size;
-                    self.recalculate_columns();
                 }
                 Task::none()
             }
@@ -186,25 +176,6 @@ impl ImageViewer {
                 self.main_window_id = Some(id);
                 Task::none()
             }
-        }
-    }
-
-    fn recalculate_columns(&mut self) {
-        let row_width = THUMBNAIL_WIDTH * self.zoom_factor / SLIDER_STEPS as f32;
-
-        let new_columns: usize;
-        new_columns = (self.main_window_size.width / row_width) as usize;
-
-        let new_x_spacing: f32;
-        let empty_space: f32;
-        empty_space = self.main_window_size.width % row_width;
-        new_x_spacing = empty_space / new_columns as f32;
-        self.x_spacing = new_x_spacing;
-
-        if new_columns >= 1 {
-            self.columns = new_columns;
-        } else {
-            self.columns = 1; //minimum
         }
     }
 
@@ -227,37 +198,32 @@ impl ImageViewer {
             1.0..=SLIDER_STEPS,
             self.zoom_factor,
             Message::ZoomFactorChanged,
-        );
+        )
+        .width(300);
 
         // thumbnails
         let thumbnail_handles = self.thumbnail_handles.as_ref().unwrap();
-        let chunked_thumbnail_handles: Vec<&[Handle]> =
-            thumbnail_handles.chunks(self.columns).collect();
 
-        let mut rows = column![].spacing(MIN_SPACING);
-        for thumbnail_handle_chunk in chunked_thumbnail_handles {
-            let mut row_images = Vec::new();
-            for thumbnail_handle in thumbnail_handle_chunk {
-                let t_width = THUMBNAIL_WIDTH * self.zoom_factor / SLIDER_STEPS;
-                let t_height = THUMBNAIL_HEIGHT * self.zoom_factor / SLIDER_STEPS;
-                let image_element: Image =
-                    Image::new(thumbnail_handle).width(t_width).height(t_height);
-                row_images.push(image_element.into());
-            }
-            let row = Row::from_vec(row_images)
-                .spacing(self.x_spacing)
-                .align_y(Alignment::Center);
-            rows = rows.push(row);
+        let mut row_images = Vec::new();
+        for thumbnail_handle in thumbnail_handles {
+            let t_width = THUMBNAIL_WIDTH * self.zoom_factor / SLIDER_STEPS;
+            let t_height = THUMBNAIL_HEIGHT * self.zoom_factor / SLIDER_STEPS;
+            let image_element: Image = Image::new(thumbnail_handle).width(t_width).height(t_height);
+            row_images.push(image_element.into());
         }
+        let row = Row::from_vec(row_images)
+            .spacing(MIN_SPACING)
+            .align_y(Alignment::Center);
 
-        let scrollable_image_rows = scrollable(container(rows).center_x(Fill))
+        let scrollable_image_rows = scrollable(container(row.wrap()).center_x(Fill))
             .width(Fill)
             .height(Fill);
 
         let toolbar = row![choose_theme, zoom_slider, select_folder]
             .spacing(MIN_SPACING)
             .padding(MIN_SPACING)
-            .align_y(Alignment::Center);
+            .align_y(Alignment::Center)
+            .wrap();
 
         let progress_bar = row![progress_bar(
             0.0..=self.image_count as f32,

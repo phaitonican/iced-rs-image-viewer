@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-iced = { version = "0.13.1", features = ["image"] }
+iced = { version = "0.13.1", features = ["image", "lazy"] }
 image = "0.25.5"
 mime_guess = "2.0.5"
 rfd = "0.15.1"
