@@ -223,7 +223,9 @@ impl ImageViewer {
             rows = rows.push(row);
         }
 
-        let scrollable_image_rows = scrollable(container(rows).center_x(Fill)).width(Fill);
+        let scrollable_image_rows = scrollable(container(rows).center_x(Fill))
+            .width(Fill)
+            .height(Fill);
 
         let toolbar = row![choose_theme, zoom_slider, select_folder]
             .spacing(MIN_SPACING)
@@ -236,7 +238,7 @@ impl ImageViewer {
         )];
 
         // create content
-        let content = column![toolbar, progress_bar, scrollable_image_rows,];
+        let content = column![toolbar, scrollable_image_rows, progress_bar];
 
         content.into()
     }
