@@ -1,5 +1,5 @@
 use iced::widget::image::Handle;
-use iced::widget::{column, container, pick_list, scrollable, slider, Button, Row};
+use iced::widget::{column, container, pick_list, progress_bar, scrollable, slider, Button, Row};
 use iced::widget::{row, Image};
 use iced::window::{self, Id};
 use iced::{Alignment, Element, Fill, Size, Subscription, Task, Theme};
@@ -42,6 +42,7 @@ struct ImageViewer {
     main_window_id: Option<Id>,
     columns: usize,
     x_spacing: f32,
+    image_count: usize,
 }
 
 impl Default for ImageViewer {
@@ -54,6 +55,7 @@ impl Default for ImageViewer {
             main_window_id: None,
             columns: 3,
             x_spacing: 0.0,
+            image_count: 0,
         }
     }
 }
@@ -126,7 +128,7 @@ impl ImageViewer {
                     .pick_folders();
 
                 let image_paths = get_image_paths(folder_paths.unwrap_or_default());
-
+                self.image_count = image_paths.len();
                 //remove old thumbnail handles
                 self.thumbnail_handles = Some(Vec::new());
 
@@ -228,8 +230,13 @@ impl ImageViewer {
             .padding(MIN_SPACING)
             .align_y(Alignment::Center);
 
+        let progress_bar = row![progress_bar(
+            0.0..=self.image_count as f32,
+            self.thumbnail_handles.as_ref().unwrap().len() as f32
+        )];
+
         // create content
-        let content = column![toolbar, scrollable_image_rows,];
+        let content = column![toolbar, progress_bar, scrollable_image_rows,];
 
         content.into()
     }
