@@ -159,9 +159,16 @@ impl ImageViewer {
     }
 
     fn recalculate_columns(&mut self) {
-        self.columns = (self.main_window_size.width
+        let new_columns: usize;
+        new_columns = (self.main_window_size.width
             / (THUMBNAIL_WIDTH * self.zoom_factor / SLIDER_STEPS as f32))
             as usize;
+
+        if new_columns >= 1 {
+            self.columns = new_columns;
+        } else {
+            self.columns = 1; //minimum
+        }
     }
 
     fn new() -> (Self, Task<Message>) {
