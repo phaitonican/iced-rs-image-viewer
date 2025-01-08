@@ -147,7 +147,7 @@ impl ImageViewer {
             }
             Message::FoldersOpened(result) => {
                 if let Ok(folder_paths) = result {
-                    println!("{:?}", folder_paths);
+                    //println!("{:?}", folder_paths);
 
                     //abort last tasks
                     if let Some(last_abort_handle) = self.image_load_abort_handle.as_ref() {
@@ -191,7 +191,7 @@ impl ImageViewer {
                 Task::none()
             }
             Message::ImageClicked(image_path_buf) => {
-                println!("{:?}", image_path_buf);
+                if let Ok(_opened_image) = opener::open(image_path_buf) {};
 
                 /*
                 let file = std::fs::File::open(image_path_buf.as_path()).unwrap();
