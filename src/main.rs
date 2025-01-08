@@ -108,13 +108,15 @@ async fn recreate_image(image_path_buf: PathBuf) -> Result<ImageInfo, Error> {
         .unwrap()
         .decode()
         .unwrap_or_default();
-    let dynamic_image = image
+
+    let thumbnail_image = image
         .thumbnail(THUMBNAIL_WIDTH as u32, THUMBNAIL_HEIGHT as u32)
         .into_rgba8();
+
     let image_handle = Handle::from_rgba(
-        dynamic_image.width(),
-        dynamic_image.height(),
-        dynamic_image.into_raw(),
+        thumbnail_image.width(),
+        thumbnail_image.height(),
+        thumbnail_image.into_raw(),
     );
 
     let image_info = ImageInfo {
