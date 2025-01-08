@@ -1,6 +1,6 @@
 use iced::widget::image::Handle;
 use iced::widget::{
-    column, container, pick_list, progress_bar, scrollable, slider, stack, text, Button,
+    checkbox, column, container, pick_list, progress_bar, scrollable, slider, stack, text, Button,
 };
 use iced::widget::{row, Image};
 use iced::window::{self, Id};
@@ -44,6 +44,7 @@ struct ImageViewer {
     image_count: usize,
     image_load_abort_handle: Option<iced::task::Handle>,
     image_loaded: Option<PathBuf>,
+    append_checkbox_value: bool,
 }
 
 impl Default for ImageViewer {
@@ -56,6 +57,7 @@ impl Default for ImageViewer {
             image_count: usize::default(),
             image_load_abort_handle: None,
             image_loaded: None,
+            append_checkbox_value: false,
         }
     }
 }
@@ -70,6 +72,7 @@ enum Message {
     WindowResized(Id, Size),
     SetMainWindowID(Id),
     ImageClicked(PathBuf),
+    AppendCheckboxToggled(bool),
 }
 
 async fn open_folders() -> Result<Vec<FileHandle>, Error> {
@@ -157,7 +160,7 @@ impl ImageViewer {
                     self.image_count = image_paths.len();
 
                     //remove old thumbnail handles
-                    if !&folder_paths.is_empty() {
+                    if !self.append_checkbox_value && !&folder_paths.is_empty() {
                         self.image_infos = Some(Vec::new());
                     }
 
@@ -179,7 +182,6 @@ impl ImageViewer {
             Message::ImageLoaded(result) => {
                 if let Ok(image_info) = result {
                     self.image_loaded = Some(image_info.image_path_buf.clone());
-
                     self.image_infos.as_mut().unwrap().push(image_info);
                 }
                 Task::none()
@@ -211,6 +213,10 @@ impl ImageViewer {
 
                 Task::none()
             }
+            Message::AppendCheckboxToggled(value) => {
+                self.append_checkbox_value = value;
+                Task::none()
+            }
         }
     }
 
@@ -225,12 +231,16 @@ impl ImageViewer {
         let choose_theme = pick_list(Theme::ALL, Some(&self.theme), Message::ThemeChanged);
 
         let select_folder = Button::new("Select Folder").on_press(Message::SelectFolders);
+
         let zoom_slider = slider(
             1.0..=SLIDER_STEPS,
             self.zoom_factor,
             Message::ZoomFactorChanged,
         )
         .width(300);
+
+        let append_checkbox = checkbox("Append images", self.append_checkbox_value)
+            .on_toggle(Message::AppendCheckboxToggled);
 
         // thumbnails
         let image_infos = self.image_infos.as_ref().unwrap();
@@ -258,7 +268,7 @@ impl ImageViewer {
             .width(Fill)
             .height(Fill);
 
-        let toolbar = row![select_folder, choose_theme, zoom_slider,]
+        let toolbar = row![select_folder, choose_theme, append_checkbox, zoom_slider,]
             .spacing(MIN_SPACING)
             .padding(MIN_SPACING)
             .align_y(Alignment::Center)
