@@ -92,14 +92,11 @@ fn get_image_paths(folder_paths: &Vec<FileHandle>) -> Vec<PathBuf> {
         for path_result in paths_inside_folder_result.into_iter() {
             let path = path_result.unwrap().path();
             //println!("{:?}", &top_level_mime_type);
-            if MimeGuess::from_path(&path)
-                .first()
-                .as_ref()
-                .unwrap()
-                .type_()
-                == mime::IMAGE
-            {
-                image_paths.push(path);
+            let mime_guess = MimeGuess::from_path(&path).first();
+            if mime_guess != None {
+                if mime_guess.unwrap().type_() == mime::IMAGE {
+                    image_paths.push(path);
+                }
             }
         }
     }
@@ -150,6 +147,8 @@ impl ImageViewer {
             }
             Message::FoldersOpened(result) => {
                 if let Ok(folder_paths) = result {
+                    println!("{:?}", folder_paths);
+
                     //abort last tasks
                     if let Some(last_abort_handle) = self.image_load_abort_handle.as_ref() {
                         last_abort_handle.abort();
@@ -268,7 +267,7 @@ impl ImageViewer {
             .width(Fill)
             .height(Fill);
 
-        let toolbar = row![select_folder, choose_theme, append_checkbox, zoom_slider,]
+        let toolbar = row![select_folder, append_checkbox, zoom_slider, choose_theme,]
             .spacing(MIN_SPACING)
             .padding(MIN_SPACING)
             .align_y(Alignment::Center)
