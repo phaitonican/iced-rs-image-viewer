@@ -7,5 +7,6 @@ edition = "2021"
 iced = { version = "0.13.1", features = ["image", "lazy"] }
 iced_aw = "0.11.0"
 image = "0.25.5"
+kamadak-exif = "0.6.1"
 mime_guess = "2.0.5"
 rfd = "0.15.1"

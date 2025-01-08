@@ -30,10 +30,16 @@ pub enum Error {
     IoError(io::ErrorKind),
 }
 
+#[derive(Debug, Clone)]
+struct ImageInfo {
+    image_handle: Handle,
+    image_path_buf: PathBuf,
+}
+
 struct ImageViewer {
     theme: Theme,
     zoom_factor: f32,
-    thumbnail_handles: Option<Vec<Handle>>,
+    image_infos: Option<Vec<ImageInfo>>,
     main_window_id: Option<Id>,
     image_count: usize,
     image_load_abort_handle: Option<iced::task::Handle>,
@@ -45,7 +51,7 @@ impl Default for ImageViewer {
         Self {
             theme: Theme::Dark,
             zoom_factor: SLIDER_STEPS / 2.0, //half zoom
-            thumbnail_handles: Some(Vec::default()),
+            image_infos: Some(Vec::default()),
             main_window_id: None,
             image_count: usize::default(),
             image_load_abort_handle: None,
@@ -60,9 +66,10 @@ enum Message {
     ZoomFactorChanged(f32),
     SelectFolders,
     FoldersOpened(Result<Vec<FileHandle>, Error>),
-    ImageLoaded(Result<(Handle, PathBuf), Error>),
+    ImageLoaded(Result<ImageInfo, Error>),
     WindowResized(Id, Size),
     SetMainWindowID(Id),
+    ImageClicked(PathBuf),
 }
 
 async fn open_folders() -> Result<Vec<FileHandle>, Error> {
@@ -96,18 +103,26 @@ fn get_image_paths(folder_paths: &Vec<FileHandle>) -> Vec<PathBuf> {
     return image_paths;
 }
 
-async fn recreate_image(image_path: PathBuf) -> Result<(Handle, PathBuf), Error> {
-    let dynamic_image = ImageReader::open(&image_path)
+async fn recreate_image(image_path_buf: PathBuf) -> Result<ImageInfo, Error> {
+    let image = ImageReader::open(&image_path_buf)
         .unwrap()
         .decode()
         .unwrap_or_default();
-    let thumbnail = dynamic_image
+    let dynamic_image = image
         .thumbnail(THUMBNAIL_WIDTH as u32, THUMBNAIL_HEIGHT as u32)
         .into_rgba8();
-    let thumbnail_handle =
-        Handle::from_rgba(thumbnail.width(), thumbnail.height(), thumbnail.into_raw());
+    let image_handle = Handle::from_rgba(
+        dynamic_image.width(),
+        dynamic_image.height(),
+        dynamic_image.into_raw(),
+    );
 
-    Ok((thumbnail_handle, image_path))
+    let image_info = ImageInfo {
+        image_handle,
+        image_path_buf,
+    };
+
+    Ok(image_info)
 }
 
 impl ImageViewer {
@@ -141,7 +156,7 @@ impl ImageViewer {
 
                     //remove old thumbnail handles
                     if !&folder_paths.is_empty() {
-                        self.thumbnail_handles = Some(Vec::new());
+                        self.image_infos = Some(Vec::new());
                     }
 
                     let mut tasks = vec![];
@@ -160,15 +175,38 @@ impl ImageViewer {
                 }
             }
             Message::ImageLoaded(result) => {
-                if let Ok((handle, path_buf)) = result {
-                    self.image_loaded = Some(path_buf);
-                    self.thumbnail_handles.as_mut().unwrap().push(handle);
+                if let Ok(image_info) = result {
+                    self.image_loaded = Some(image_info.image_path_buf.clone());
+
+                    self.image_infos.as_mut().unwrap().push(image_info);
                 }
                 Task::none()
             }
             Message::WindowResized(_id, _size) => Task::none(),
             Message::SetMainWindowID(id) => {
                 self.main_window_id = Some(id);
+                Task::none()
+            }
+            Message::ImageClicked(image_path_buf) => {
+                println!("{:?}", image_path_buf);
+
+                /*
+                let file = std::fs::File::open(image_path_buf.as_path()).unwrap();
+                let mut bufreader = std::io::BufReader::new(&file);
+
+                println!("{:?}", bufreader);
+                let exifreader = exif::Reader::new();
+                let exif = exifreader.read_from_container(&mut bufreader).unwrap();
+                for f in exif.fields() {
+                    println!(
+                        "{} {} {}",
+                        f.tag,
+                        f.ifd_num,
+                        f.display_value().with_unit(&exif)
+                    );
+                }
+                */
+
                 Task::none()
             }
         }
@@ -193,18 +231,26 @@ impl ImageViewer {
         .width(300);
 
         // thumbnails
-        let thumbnail_handles = self.thumbnail_handles.as_ref().unwrap();
-        let mut thumbnail_images = Vec::new();
-        for thumbnail_handle in thumbnail_handles {
+        let image_infos = self.image_infos.as_ref().unwrap();
+        let mut thumbnail_image_buttons = Vec::new();
+
+        for image_info in image_infos {
             let t_width = THUMBNAIL_WIDTH * self.zoom_factor / SLIDER_STEPS;
             let t_height = THUMBNAIL_HEIGHT * self.zoom_factor / SLIDER_STEPS;
-            let image: Image = Image::new(thumbnail_handle).width(t_width).height(t_height);
-            thumbnail_images.push(image.into());
+            let image: Image = Image::new(&image_info.image_handle)
+                .width(t_width)
+                .height(t_height);
+
+            let image_button = Button::new(image)
+                .on_press(Message::ImageClicked(image_info.image_path_buf.clone()));
+
+            thumbnail_image_buttons.push(image_button.into());
         }
 
-        let thumbnails_wrap = Wrap::with_elements(thumbnail_images)
+        let thumbnails_wrap = Wrap::with_elements(thumbnail_image_buttons)
             .align_items(Alignment::Center)
-            .spacing(MIN_SPACING);
+            .spacing(MIN_SPACING)
+            .line_spacing(MIN_SPACING);
 
         let scrollable_rows_for_thumbnails = scrollable(container(thumbnails_wrap).center_x(Fill))
             .width(Fill)
@@ -216,7 +262,7 @@ impl ImageViewer {
             .align_y(Alignment::Center)
             .wrap();
 
-        let loaded_images = self.thumbnail_handles.as_ref().unwrap().len();
+        let loaded_images = self.image_infos.as_ref().unwrap().len();
         let mut loading_message = String::default();
         if let Some(image_pathbuf) = &self.image_loaded {
             let loaded_image_path = image_pathbuf.to_str().unwrap_or_default().to_string();
